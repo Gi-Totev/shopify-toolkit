@@ -1,6 +1,6 @@
 {
   "name": "shopify-toolkit",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "stk — a small, extensible collection of command-line tools for Shopify storefront work.",
   "bin": {
     "stk": "bin/stk.js"

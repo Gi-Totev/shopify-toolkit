@@ -66,9 +66,13 @@ async function main() {
 
   if (cmd === '-v' || cmd === '--version') { console.log(installedVersion()); return; }
   if (cmd === 'update') {
-    let latest = null;
-    try { latest = (await checkForUpdate()).latest; } catch { /* offline → update without version */ }
-    process.exit(runUpdate(latest));
+    let info = null;
+    try { info = await checkForUpdate(); } catch { /* offline → attempt update anyway */ }
+    if (info && info.latest && !info.updateAvailable) {
+      console.log(`stk is already on the latest version (${info.installed}).`);
+      return;
+    }
+    process.exit(runUpdate(info && info.latest));
   }
 
   await notifyUpdate();
