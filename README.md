@@ -13,20 +13,33 @@ Pure Node — runs natively on **Windows, macOS, and Linux**.
 
 ## Install
 
-One command, every platform (native Windows PowerShell/cmd included):
+One command:
 
 ```sh
 npm i -g github:Gi-Totev/shopify-toolkit
 ```
 
-Update: re-run the same command. Uninstall: `npm rm -g shopify-toolkit`.
+Update:
+
+```sh
+stk update
+```
+
+Uninstall:
+
+```sh
+npm rm -g shopify-toolkit
+```
 
 ## Usage
 
 ```sh
-stk            # picker of all tools
-stk -h         # list tools + descriptions
+stk            # pick a tool to run
+stk -l         # list all tools + descriptions
 stk <tool> …   # run a tool directly
+stk <tool> -h  # help for a specific tool
+stk update     # update to the latest version
+stk -v         # show installed version
 ```
 
 ## Tools
@@ -58,13 +71,13 @@ Fixes, all on by default:
 No dispatcher edits needed — drop a folder under `tools/`:
 
 ```
-tools/<name>/<name>.js     # run via node
+tools/<tool>/<tool>.js     # run via node
 # or
-tools/<name>/run           # any executable, any language
-tools/<name>/.desc         # one-line description (shown in list + picker)
+tools/<tool>/run           # any executable, any language
+tools/<tool>/.desc         # one-line description (shown in list + picker)
 ```
 
-`stk <name>` runs it; `stk` and `stk -h` list it automatically.
+`stk <tool>` runs it; `stk -l` lists it automatically.
 
 ## License
 
