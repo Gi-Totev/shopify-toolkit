@@ -2,30 +2,29 @@
 
 A small, extensible collection of command-line tools for Shopify storefront work.
 One dispatcher command (`stk`) runs any tool under `tools/`. Run `stk` with no
-arguments for an fzf picker, or `stk <tool>` to run one directly.
+arguments for a picker, or `stk <tool>` to run one directly.
+
+Pure Node — runs natively on **Windows, macOS, and Linux**.
 
 ## Requirements
 
-- **Node.js** — runs the tools
-- **fzf** — interactive pickers (`brew install fzf`)
+- **Node.js** ≥ 16
+- **fzf** — used for the interactive pickers
 
 ## Install
 
+One command, every platform (native Windows PowerShell/cmd included):
+
 ```sh
-git clone https://github.com/Gi-Totev/shopify-toolkit.git
-cd shopify-toolkit
-./install.sh
+npm i -g github:Gi-Totev/shopify-toolkit
 ```
 
-`install.sh` symlinks `bin/stk` into the first writable PATH dir it finds
-(`~/.local/bin`, `/usr/local/bin`, or `~/bin`) and warns if anything is missing.
-The repo stays where you cloned it — the symlink points back to it, so
-`git pull` updates your tools with no reinstall.
+Update: re-run the same command. Uninstall: `npm rm -g shopify-toolkit`.
 
 ## Usage
 
 ```sh
-stk            # fzf picker of all tools
+stk            # picker of all tools
 stk -h         # list tools + descriptions
 stk <tool> …   # run a tool directly
 ```
@@ -38,7 +37,7 @@ Shopify's Files uploader rejects SVGs that lack a namespace or intrinsic size,
 and its sanitizer strips scripts. This fixes all of that in place.
 
 ```sh
-stk svg                 # choose folder or specific files (fzf)
+stk svg                 # choose folder or specific files (picker)
 stk svg ~/icons         # fix every .svg in a folder (recursive)
 stk svg logo.svg        # fix one file
 stk svg ~/icons -o out  # write fixed copies to ./out instead of in place

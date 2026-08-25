@@ -1,0 +1,21 @@
+{
+  "name": "shopify-toolkit",
+  "version": "1.0.0",
+  "description": "stk — a small, extensible collection of command-line tools for Shopify storefront work.",
+  "bin": {
+    "stk": "bin/stk.js"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "tools/"
+  ],
+  "engines": {
+    "node": ">=16"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gi-Totev/shopify-toolkit.git"
+  },
+  "license": "MIT"
+}

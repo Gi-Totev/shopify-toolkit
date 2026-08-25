@@ -14,7 +14,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { pickOne, pickMany } = require('../../lib/pick');
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
@@ -28,7 +28,7 @@ function parseArgs(argv) {
     else if (a.startsWith('-')) { console.error(`Unknown flag: ${a}`); process.exit(1); }
     else opts.inputs.push(a);
   }
-  opts.interactive = opts.inputs.length === 0 && !opts.help; // no path → fzf flow
+  opts.interactive = opts.inputs.length === 0 && !opts.help; // no path → picker flow
   return opts;
 }
 
@@ -48,34 +48,18 @@ Options:
 Folders are scanned recursively for .svg.`);
 }
 
-function fzf(candidates, flags) {
-  try {
-    execSync('command -v fzf', { stdio: 'ignore' });
-  } catch {
-    console.error('fzf not installed. Run: brew install fzf'); process.exit(1);
-  }
-  try {
-    const out = execSync(`fzf ${flags}`, {
-      input: candidates.join('\n'),
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'inherit'],
-    });
-    return out.split('\n').map((s) => s.trim()).filter(Boolean);
-  } catch {
-    return []; // ESC / no selection
-  }
-}
-
-// No path given: pick whole current folder, or fzf-select specific files.
-function interactiveSelect() {
-  const mode = fzf(['entire folder (all .svg here)', 'specific files (pick with fzf)'],
-    "--prompt='svg > ' --height=15% --reverse")[0];
+// No path given: pick whole current folder, or select specific files.
+async function interactiveSelect() {
+  const mode = await pickOne(
+    ['entire folder (all .svg here)', 'specific files (pick individually)'],
+    'svg > ',
+  );
   if (!mode) return null;
   if (mode.startsWith('entire')) return collectFiles(['.']);
 
   const all = collectFiles(['.']);
   if (all.length === 0) { console.error('No .svg files in current folder.'); return []; }
-  return fzf(all, "--multi --prompt='files (tab to mark) > ' --height=60% --reverse");
+  return pickMany(all, 'files > ');
 }
 
 function collectFiles(inputs) {
@@ -275,13 +259,13 @@ function cleanIds(src) {
   return { out, notes };
 }
 
-function main() {
+async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) { usage(); process.exit(0); }
 
   let files;
   if (opts.interactive) {
-    files = interactiveSelect();
+    files = await interactiveSelect();
     if (files === null) { console.log('cancelled.'); process.exit(0); }
   } else {
     files = collectFiles(opts.inputs);
