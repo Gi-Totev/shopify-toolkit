@@ -65,7 +65,11 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
 
   if (cmd === '-v' || cmd === '--version') { console.log(installedVersion()); return; }
-  if (cmd === 'update') { process.exit(runUpdate()); }
+  if (cmd === 'update') {
+    let latest = null;
+    try { latest = (await checkForUpdate()).latest; } catch { /* offline → update without version */ }
+    process.exit(runUpdate(latest));
+  }
 
   await notifyUpdate();
 
