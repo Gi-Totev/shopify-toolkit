@@ -1,0 +1,1 @@
+Prep SVGs for Shopify upload: xmlns, width/height, viewBox, xlink; strip scripts; remove unused Illustrator ids + data-name.
