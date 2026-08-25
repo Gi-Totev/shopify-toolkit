@@ -10,6 +10,8 @@
  *   - viewBox                               (scaling; derived from width/height)
  *   - xmlns:xlink                           (only if the file uses xlink:)
  * And strips content Shopify rejects: <script> elements and inline on*= handlers.
+ * Also inlines Illustrator's CSS classes (.st0 { fill:... }) as presentation
+ * attributes so elements carry their own fill/stroke without a <style> block.
  */
 
 const fs = require('fs');
@@ -18,6 +20,15 @@ const { pickOne, pickMany } = require('../../lib/pick');
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
+
+// CSS properties that are also valid SVG presentation attributes — safe to inline.
+const SVG_PRESENTATION = new Set([
+  'fill', 'fill-opacity', 'fill-rule',
+  'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin',
+  'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-opacity',
+  'opacity', 'color', 'display', 'visibility',
+  'stop-color', 'stop-opacity', 'clip-rule',
+]);
 
 function parseArgs(argv) {
   const opts = { inputs: [], out: null, forceSize: true };
@@ -39,7 +50,8 @@ Usage:
   stk svg [file.svg | folder] [options]     (no path → choose folder or files)
 
 Fixes everything by default (in place): xmlns, width/height, viewBox,
-xmlns:xlink, strips scripts/handlers, and converts % sizes to absolute.
+xmlns:xlink, strips scripts/handlers, converts % sizes to absolute, and
+inlines Illustrator CSS classes (.st0 { fill:... }) as attributes.
 
 Options:
   -o, --out <dir>    Write fixed files to <dir> instead of in place
@@ -214,6 +226,12 @@ function processSvg(src, opts) {
   out = ids.out;
   notes.push(...ids.notes);
 
+  // 8. inline Illustrator CSS classes (.st0 { fill:... }) as presentation attributes
+  const inl = inlineClasses(out);
+  if (inl.changed) changed = true;
+  out = inl.out;
+  notes.push(...inl.notes);
+
   return { changed, notes, out };
 }
 
@@ -257,6 +275,128 @@ function cleanIds(src) {
   if (dups.length) notes.push(`WARN: duplicate referenced id(s), fix manually: ${dups.join(', ')}`);
 
   return { out, notes };
+}
+
+// Parse a rule body ("fill:#f00; stroke:none") into ordered {prop, value} decls.
+function parseDecls(body) {
+  return body.split(';').map((d) => d.trim()).filter(Boolean).map((d) => {
+    const i = d.indexOf(':');
+    if (i < 0) return null;
+    const prop = d.slice(0, i).trim().toLowerCase();
+    const value = d.slice(i + 1).trim().replace(/\s*!important\s*$/i, '');
+    return value ? { prop, value } : null;
+  }).filter(Boolean);
+}
+
+// Walk a <style> body, harvest pure single-class rules into `map`, return the CSS
+// that stays behind (id/element/descendant selectors we can't safely flatten).
+function collectClassRules(css, map) {
+  let consumedAny = false;
+  const remaining = css.replace(/([^{}]+)\{([^{}]*)\}/g, (full, sel, body) => {
+    const selectors = sel.split(',').map((s) => s.trim()).filter(Boolean);
+    const allSimpleClass = selectors.length > 0 && selectors.every((s) => /^\.[A-Za-z_][\w-]*$/.test(s));
+    if (!allSimpleClass) return full;
+    const decls = parseDecls(body);
+    if (!decls.length) return '';
+    if (!decls.every((d) => SVG_PRESENTATION.has(d.prop))) return full; // has non-presentation prop → leave as CSS
+    for (const s of selectors) {
+      const cls = s.slice(1);
+      (map[cls] ||= []).push(...decls);
+    }
+    consumedAny = true;
+    return '';
+  });
+  return { remaining, consumedAny };
+}
+
+// Parse a tag's attribute string into an ordered list (quoted or unquoted values).
+function parseTagAttrs(str) {
+  const attrs = [];
+  const re = /([^\s=/]+)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+  let m;
+  while ((m = re.exec(str)) !== null) {
+    const value = m[3] !== undefined ? m[3] : (m[4] !== undefined ? m[4] : m[5]);
+    const q = m[2][0] === '"' || m[2][0] === "'" ? m[2][0] : '"';
+    attrs.push({ name: m[1], value, quote: q });
+  }
+  return attrs;
+}
+
+// Replace Illustrator CSS classes with inline presentation attributes.
+function inlineClasses(src) {
+  const notes = [];
+  const map = {};
+  let styleChanged = false;
+  let removedBlocks = 0;
+
+  let out = src.replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (full, css) => {
+    const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const { remaining, consumedAny } = collectClassRules(clean, map);
+    if (!consumedAny) return full;
+    styleChanged = true;
+    if (remaining.trim() === '') { removedBlocks++; return ''; }
+    return full.replace(css, remaining);
+  });
+
+  const classNames = Object.keys(map);
+  if (!classNames.length) return { out: src, notes, changed: false };
+
+  // Classes still carrying a definition in a surviving <style> block — keep those.
+  const keptClasses = new Set();
+  let sm;
+  const styleRe = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
+  while ((sm = styleRe.exec(out)) !== null) {
+    let cm;
+    const clsRe = /\.([A-Za-z_][\w-]*)/g;
+    while ((cm = clsRe.exec(sm[1])) !== null) keptClasses.add(cm[1]);
+  }
+
+  let elCount = 0;
+  out = out.replace(
+    /<([a-zA-Z][\w:.-]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))*)\s*(\/?)>/g,
+    (m, name, attrsStr, slash) => {
+      if (!/\bclass\s*=/.test(attrsStr)) return m;
+      const attrs = parseTagAttrs(attrsStr);
+      const classAttr = attrs.find((a) => a.name.toLowerCase() === 'class');
+      if (!classAttr) return m;
+
+      const classes = classAttr.value.split(/\s+/).filter(Boolean);
+      const inlinable = classes.filter((c) => map[c]);
+      const leftover = classes.filter((c) => !map[c] && keptClasses.has(c)); // still has a rule
+      const dead = classes.filter((c) => !map[c] && !keptClasses.has(c));    // references nothing
+      if (!inlinable.length && !dead.length) return m; // only kept-rule classes → untouched
+
+      // Later class wins on conflicting props (CSS source order).
+      const propMap = {};
+      for (const c of classes) if (map[c]) for (const d of map[c]) propMap[d.prop] = d.value;
+      const inlined = Object.keys(propMap).map((p) => ({ name: p, value: propMap[p], quote: '"' }));
+
+      const newAttrs = [];
+      for (const a of attrs) {
+        if (a === classAttr) {
+          if (leftover.length) newAttrs.push({ name: 'class', value: leftover.join(' '), quote: classAttr.quote });
+          newAttrs.push(...inlined);
+        } else if (propMap[a.name.toLowerCase()] !== undefined) {
+          continue; // style-block CSS outranks a presentation attribute → drop the old one
+        } else {
+          newAttrs.push(a);
+        }
+      }
+
+      elCount++;
+      const attrStr = newAttrs.map((a) => `${a.name}=${a.quote}${a.value}${a.quote}`).join(' ');
+      return `<${name}${attrStr ? ' ' + attrStr : ''}${slash ? ' /' : ''}>`;
+    },
+  );
+
+  // Drop now-empty <defs> wrappers left behind after removing the <style>.
+  let emptyDefs = 0;
+  out = out.replace(/\s*<defs\b[^>]*>\s*<\/defs>/gi, () => { emptyDefs++; return ''; });
+
+  if (elCount) notes.push(`inlined ${classNames.length} class rule${classNames.length > 1 ? 's' : ''} onto ${elCount} element${elCount > 1 ? 's' : ''}`);
+  if (removedBlocks) notes.push(`removed ${removedBlocks} <style> block${removedBlocks > 1 ? 's' : ''}`);
+  if (emptyDefs) notes.push(`removed ${emptyDefs} empty <defs>`);
+  return { out, notes, changed: styleChanged || elCount > 0 || emptyDefs > 0 };
 }
 
 async function main() {
