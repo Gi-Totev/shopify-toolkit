@@ -1,0 +1,1 @@
+Prep images for Shopify upload: resize >20MP, shrink >20MB, flag CMYK + non-sRGB. Never touches originals.
