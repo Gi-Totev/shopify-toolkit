@@ -16,7 +16,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { pickOne, pickMany } = require('../../lib/pick');
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const XLINK_NS = 'http://www.w3.org/1999/xlink';
@@ -31,15 +30,13 @@ const SVG_PRESENTATION = new Set([
 ]);
 
 function parseArgs(argv) {
-  const opts = { inputs: [], out: null, forceSize: true };
+  const opts = { inputs: [], forceSize: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--out' || a === '-o') opts.out = argv[++i];
-    else if (a === '--help' || a === '-h') opts.help = true;
+    if (a === '--help' || a === '-h') opts.help = true;
     else if (a.startsWith('-')) { console.error(`Unknown flag: ${a}`); process.exit(1); }
     else opts.inputs.push(a);
   }
-  opts.interactive = opts.inputs.length === 0 && !opts.help; // no path → picker flow
   return opts;
 }
 
@@ -47,31 +44,25 @@ function usage() {
   console.log(`stk svg — prep SVGs for Shopify image upload
 
 Usage:
-  stk svg [file.svg | folder] [options]     (no path → choose folder or files)
+  stk svg [folder]      (no folder -> current directory)
 
-Fixes everything by default (in place): xmlns, width/height, viewBox,
-xmlns:xlink, strips scripts/handlers, converts % sizes to absolute, and
-inlines Illustrator CSS classes (.st0 { fill:... }) as attributes.
+Writes to svg-ready/ inside the target folder (a new -N if that exists)
+and never modifies originals.
+
+Fixes xmlns, width/height, viewBox, xmlns:xlink; strips scripts/handlers;
+converts % sizes to absolute; inlines Illustrator CSS classes
+(.st0 { fill:... }) as attributes.
 
 Options:
-  -o, --out <dir>    Write fixed files to <dir> instead of in place
   -h, --help         Show this help
 
 Folders are scanned recursively for .svg.`);
 }
 
-// No path given: pick whole current folder, or select specific files.
-async function interactiveSelect() {
-  const mode = await pickOne(
-    ['entire folder (all .svg here)', 'specific files (pick individually)'],
-    'svg > ',
-  );
-  if (!mode) return null;
-  if (mode.startsWith('entire')) return collectFiles(['.']);
-
-  const all = collectFiles(['.']);
-  if (all.length === 0) { console.error('No .svg files in current folder.'); return []; }
-  return pickMany(all, 'files > ');
+function pickFolder(root, base) {
+  let name = base;
+  for (let n = 1; fs.existsSync(path.join(root, name)); n++) name = `${base}-${n}`;
+  return path.join(root, name);
 }
 
 function collectFiles(inputs) {
@@ -79,6 +70,7 @@ function collectFiles(inputs) {
   const walk = (p) => {
     const st = fs.statSync(p);
     if (st.isDirectory()) {
+      if (/^svg-ready(-\d+)?$/.test(path.basename(p))) return;
       for (const name of fs.readdirSync(p)) walk(path.join(p, name));
     } else if (st.isFile() && p.toLowerCase().endsWith('.svg')) {
       files.push(p);
@@ -403,16 +395,18 @@ async function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) { usage(); process.exit(0); }
 
-  let files;
-  if (opts.interactive) {
-    files = await interactiveSelect();
-    if (files === null) { console.log('cancelled.'); process.exit(0); }
-  } else {
-    files = collectFiles(opts.inputs);
+  const folder = opts.inputs[0] || '.';
+  if (!fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) {
+    console.error(`stk svg: not a folder: ${path.resolve(folder)}`);
+    process.exit(1);
   }
+
+  const files = collectFiles([folder]);
   if (files.length === 0) { console.error('No .svg files found.'); process.exit(1); }
 
-  if (opts.out) fs.mkdirSync(opts.out, { recursive: true });
+  const root = path.resolve(folder);
+  const destDir = pickFolder(root, 'svg-ready');
+  fs.mkdirSync(destDir, { recursive: true });
 
   let touched = 0, warned = 0;
   for (const file of files) {
@@ -428,11 +422,12 @@ async function main() {
     const label = res.notes.length ? ` — ${res.notes.join('; ')}` : '';
     console.log(`${res.changed ? '✎' : '·'} ${tag}: ${file}${label}`);
 
-    if (res.changed) {
-      const dest = opts.out ? path.join(opts.out, path.basename(file)) : file;
-      fs.writeFileSync(dest, res.out);
-      touched++;
-    }
+    const rel = path.relative(root, path.resolve(file));
+    const outRel = (!rel || rel.startsWith('..') || path.isAbsolute(rel)) ? path.basename(file) : rel;
+    const dest = path.join(destDir, outRel);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, res.out);
+    touched++;
   }
 
   console.log(`\n${files.length} file(s) scanned, ${touched} written, ${warned} warning(s).`);
