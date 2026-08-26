@@ -66,6 +66,26 @@ Fixes, all on by default:
 - removes unused Illustrator `id`s and `data-name` (keeps referenced ids;
   warns on duplicate referenced ids)
 
+### `extract` — pull SVGs from a URL or HTML file
+
+Finds every SVG on a page and writes them into `stk-extracted-svgs/` in the
+current directory (a new `-N` if that exists). Never modifies the source.
+
+```sh
+stk extract https://example.com
+stk extract ~/Desktop/page.html
+```
+
+Sources, all on:
+
+- inline `<svg>` blocks
+- linked `.svg` files (`<img>`, `<object>`, `<embed>`, `href`/`src`/`srcset`)
+- CSS `url(...)` (style attributes, `<style>`, linked stylesheets)
+- `data:image/svg+xml` URIs
+
+Names come from the URL basename, or the inline `id` / `aria-label`, or
+`svg-N.svg`.
+
 ## Adding a tool
 
 No dispatcher edits needed — drop a folder under `tools/`:
